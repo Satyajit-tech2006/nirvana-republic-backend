@@ -14,56 +14,58 @@ import journalRouter from "./routes/journal.route.js";
 
 const app = express();
 
-// 1. CORS Configuration (MUST BE BEFORE HELMET & PARSERS)
+// 1. Explicit CORS Options Object
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
   "http://localhost:8080",
-  "https://nirvana-republic-frontend-five.vercel.app", // Note: NO trailing slash
+  "https://nirvana-republic-frontend-five.vercel.app",
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (e.g. mobile apps, curl, Postman)
-      if (!origin) return callback(null, true);
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const sanitizedOrigin = origin.replace(/\/$/, "");
+    const isAllowed =
+      allowedOrigins.includes(sanitizedOrigin) ||
+      sanitizedOrigin.endsWith(".vercel.app");
 
-      // Clean trailing slashes if any
-      const sanitizedOrigin = origin.replace(/\/$/, "");
+    if (isAllowed) {
+      return callback(null, true);
+    }
+    return callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+    "Accept",
+  ],
+  optionsSuccessStatus: 204,
+};
 
-      const isAllowed =
-        allowedOrigins.includes(sanitizedOrigin) ||
-        sanitizedOrigin.endsWith(".vercel.app");
+// 2. Attach CORS Middleware First
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
-      if (isAllowed) {
-        return callback(null, true);
-      }
-      return callback(null, false); // Return false instead of throwing Error to prevent crash
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
-    maxAge: 86400,
-  })
-);
-
-// Preflight handler
-app.options("*", cors());
-
-// 2. Security Headers
+// 3. Security Headers (Configured for Cross-Origin)
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginOpenerPolicy: false,
   })
 );
 
-// 3. Rate Limiting
+// 4. Rate Limiting (Skip preflight OPTIONS requests)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.method === "OPTIONS",
   message: {
     success: false,
     message: "Too many requests from this IP, please try again later.",
@@ -71,14 +73,15 @@ const limiter = rateLimit({
 });
 app.use("/api", limiter);
 
-// 4. Parsers & Static Assets
+// 5. Parsers & Static Assets
 app.use(express.json({ limit: "50kb" }));
 app.use(express.urlencoded({ extended: true, limit: "50kb" }));
 app.use(express.static("public"));
 app.use(cookieParser());
 
-// 5. Database Connection Middleware
+// 6. DB Connection (Skip on OPTIONS preflight)
 app.use(async (req, res, next) => {
+  if (req.method === "OPTIONS") return next();
   try {
     await connectDB();
     next();
@@ -90,7 +93,7 @@ app.use(async (req, res, next) => {
   }
 });
 
-// Health Check / Ping
+// Health Check
 app.get("/api/v1/ping", (req, res) => {
   res.status(200).json({
     success: true,
