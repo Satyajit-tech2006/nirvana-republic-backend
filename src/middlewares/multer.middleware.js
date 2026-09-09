@@ -1,9 +1,24 @@
 import multer from "multer";
+import path from "path";
+import fs from "fs";
 import { ApiError } from "../utils/ApiError.js";
 
-const storage = multer.memoryStorage();
+// Ensure temp directory exists
+const tempDir = "./public/temp";
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir, { recursive: true });
+}
 
-// Validate file types (JPEG, PNG, WEBP, AVIF, and PDF for lab reports)
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, tempDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname));
+  },
+});
+
 const fileFilter = (req, file, cb) => {
   const allowedMimeTypes = [
     "image/jpeg",

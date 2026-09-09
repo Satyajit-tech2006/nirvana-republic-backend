@@ -1,7 +1,9 @@
+import fs from "fs";
 import { Journal } from "../models/journal.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { uploadOnCloudinary } from "../utils/cloudinary.js";
 
 // @desc    Get published articles with category filtering & pagination
 // @route   GET /api/v1/journal
@@ -11,7 +13,7 @@ export const getArticles = asyncHandler(async (req, res) => {
 
   const query = { isPublished: true };
 
-  if (category && category !== "all") {
+  if (category && category !== "all" && category !== "All") {
     query.category = category;
   }
 
@@ -83,19 +85,28 @@ export const createArticle = asyncHandler(async (req, res) => {
     isPublished,
   } = req.body;
 
+  // Cleanup helper in case of validation error
+  const localFilePath = req.file?.path;
+
   if (!title || !slug || !excerpt || !content) {
+    if (localFilePath && fs.existsSync(localFilePath)) {
+      fs.unlinkSync(localFilePath);
+    }
     throw new ApiError(400, "Title, slug, excerpt, and content body are required");
   }
 
   const existingArticle = await Journal.findOne({ slug: slug.toLowerCase() });
   if (existingArticle) {
+    if (localFilePath && fs.existsSync(localFilePath)) {
+      fs.unlinkSync(localFilePath);
+    }
     throw new ApiError(409, "An article with this slug already exists");
   }
 
-  // Handle Cover Image Upload
+  // Handle Cover Image Upload to Cloudinary
   let coverImageUrl = req.body.coverImage;
-  if (req.file?.path) {
-    const uploaded = await uploadOnCloudinary(req.file.path);
+  if (localFilePath) {
+    const uploaded = await uploadOnCloudinary(localFilePath);
     coverImageUrl = uploaded?.secure_url || uploaded?.url;
   }
 
@@ -159,9 +170,35 @@ export const createArticle = asyncHandler(async (req, res) => {
 export const updateArticle = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
+  let updateData = { ...req.body };
+
+  // Handle updated image if uploaded
+  if (req.file?.path) {
+    const uploaded = await uploadOnCloudinary(req.file.path);
+    if (uploaded?.secure_url || uploaded?.url) {
+      updateData.coverImage = uploaded.secure_url || uploaded.url;
+    }
+  }
+
+  if (updateData.author && typeof updateData.author === "string") {
+    try {
+      updateData.author = JSON.parse(updateData.author);
+    } catch {
+      // Keep as is
+    }
+  }
+
+  if (updateData.tags && typeof updateData.tags === "string") {
+    try {
+      updateData.tags = JSON.parse(updateData.tags);
+    } catch {
+      updateData.tags = updateData.tags.split(",").map((t) => t.trim());
+    }
+  }
+
   const article = await Journal.findByIdAndUpdate(
     id,
-    { $set: req.body },
+    { $set: updateData },
     { new: true, runValidators: true }
   );
 

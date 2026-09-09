@@ -1,10 +1,45 @@
 import { v2 as cloudinary } from "cloudinary";
+import fs from "fs";
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
+
+/**
+ * Upload a local disk file to Cloudinary
+ * @param {string} localFilePath - Path to temp file on disk
+ * @param {string} folder - Target Cloudinary folder
+ * @returns {Promise<object|null>}
+ */
+export const uploadOnCloudinary = async (
+  localFilePath,
+  folder = "nirvana_republic/journal"
+) => {
+  try {
+    if (!localFilePath) return null;
+
+    const response = await cloudinary.uploader.upload(localFilePath, {
+      resource_type: "auto",
+      folder,
+    });
+
+    // Remove local temp file after successful upload
+    if (fs.existsSync(localFilePath)) {
+      fs.unlinkSync(localFilePath);
+    }
+
+    return response;
+  } catch (error) {
+    // Clean up local temp file on error
+    if (fs.existsSync(localFilePath)) {
+      fs.unlinkSync(localFilePath);
+    }
+    console.error("Cloudinary upload error:", error);
+    return null;
+  }
+};
 
 /**
  * Upload a memory buffer stream directly to Cloudinary
