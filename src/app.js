@@ -14,12 +14,53 @@ import journalRouter from "./routes/journal.route.js";
 
 const app = express();
 
-// Security Headers
-app.use(helmet());
+// 1. CORS Configuration (MUST BE BEFORE HELMET & PARSERS)
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "http://localhost:8080",
+  "https://nirvana-republic-frontend-five.vercel.app", // Note: NO trailing slash
+  process.env.FRONTEND_URL,
+].filter(Boolean);
 
-// Rate Limiting
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. mobile apps, curl, Postman)
+      if (!origin) return callback(null, true);
+
+      // Clean trailing slashes if any
+      const sanitizedOrigin = origin.replace(/\/$/, "");
+
+      const isAllowed =
+        allowedOrigins.includes(sanitizedOrigin) ||
+        sanitizedOrigin.endsWith(".vercel.app");
+
+      if (isAllowed) {
+        return callback(null, true);
+      }
+      return callback(null, false); // Return false instead of throwing Error to prevent crash
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+    maxAge: 86400,
+  })
+);
+
+// Preflight handler
+app.options("*", cors());
+
+// 2. Security Headers
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
+
+// 3. Rate Limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
@@ -30,45 +71,13 @@ const limiter = rateLimit({
 });
 app.use("/api", limiter);
 
-// CORS Configuration
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:3000",
-  "https://nirvana-republic-frontend-five.vercel.app/",
-  "http://localhost:8080",
-  process.env.FRONTEND_URL,
-].filter(Boolean);
-
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (e.g., mobile apps, curl, server-to-server)
-      if (!origin) return callback(null, true);
-      if (
-        allowedOrigins.includes(origin) ||
-        origin.endsWith(".vercel.app") // Allows preview & production deployments on Vercel
-      ) {
-        return callback(null, true);
-      }
-      return callback(new Error("CORS policy violation"), false);
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-    maxAge: 86400,
-  })
-);
-
-// Preflight handler
-app.options("*", cors());
-
-// Parsers & Static Assets
+// 4. Parsers & Static Assets
 app.use(express.json({ limit: "50kb" }));
 app.use(express.urlencoded({ extended: true, limit: "50kb" }));
 app.use(express.static("public"));
 app.use(cookieParser());
 
-// Database Connection Middleware (ensures connection in serverless/monolithic runs)
+// 5. Database Connection Middleware
 app.use(async (req, res, next) => {
   try {
     await connectDB();
