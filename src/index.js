@@ -21,19 +21,25 @@ import "./models/journal.model.js";
 
 const PORT = process.env.PORT || 8000;
 
-connectDB()
-  .then(() => {
-    const server = http.createServer(app);
+// Local Development Server Listener (Skipped on Vercel Serverless runtime)
+if (!process.env.VERCEL) {
+  connectDB()
+    .then(() => {
+      const server = http.createServer(app);
 
-    server.listen(PORT, () => {
-      console.log(`🌿 Nirvana Republic API Server running on port ${PORT}`);
-    });
+      server.listen(PORT, () => {
+        console.log(`🌿 Nirvana Republic API Server running on port ${PORT}`);
+      });
 
-    server.on("error", (err) => {
-      console.error("❌ Server runtime error:", err);
+      server.on("error", (err) => {
+        console.error("❌ Server runtime error:", err);
+      });
+    })
+    .catch((error) => {
+      console.error("❌ Error starting Nirvana Republic server:", error);
+      process.exit(1);
     });
-  })
-  .catch((error) => {
-    console.error("❌ Error starting Nirvana Republic server:", error);
-    process.exit(1);
-  });
+}
+
+// Default export required for Vercel Serverless Function entry point
+export default app;

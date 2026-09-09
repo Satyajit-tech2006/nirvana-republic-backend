@@ -1,12 +1,18 @@
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { ApiError } from "../utils/ApiError.js";
 
-// Ensure temp directory exists
-const tempDir = "./public/temp";
+// Use /tmp on Vercel; use ./public/temp when developing locally
+const tempDir = process.env.VERCEL ? os.tmpdir() : "./public/temp";
+
 if (!fs.existsSync(tempDir)) {
-  fs.mkdirSync(tempDir, { recursive: true });
+  try {
+    fs.mkdirSync(tempDir, { recursive: true });
+  } catch (err) {
+    console.warn("Could not create temp directory:", err.message);
+  }
 }
 
 const storage = multer.diskStorage({
@@ -15,7 +21,7 @@ const storage = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname));
+    cb(null, `${file.fieldname}-${uniqueSuffix}${path.extname(file.originalname)}`);
   },
 });
 

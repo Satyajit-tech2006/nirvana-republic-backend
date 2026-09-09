@@ -14,7 +14,10 @@ import journalRouter from "./routes/journal.route.js";
 
 const app = express();
 
-// 1. Explicit CORS Options Object
+// Trust reverse proxy for Vercel edge deployment
+app.set("trust proxy", 1);
+
+// 1. CORS Configuration
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
@@ -25,7 +28,9 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin: (origin, callback) => {
+    // Allow non-browser requests (e.g., mobile apps, Postman, curl)
     if (!origin) return callback(null, true);
+
     const sanitizedOrigin = origin.replace(/\/$/, "");
     const isAllowed =
       allowedOrigins.includes(sanitizedOrigin) ||
@@ -34,7 +39,8 @@ const corsOptions = {
     if (isAllowed) {
       return callback(null, true);
     }
-    return callback(new Error("Not allowed by CORS"));
+    // Return false instead of throwing Error to prevent unhandled 500 crashes
+    return callback(null, false);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
@@ -45,13 +51,14 @@ const corsOptions = {
     "Accept",
   ],
   optionsSuccessStatus: 204,
+  maxAge: 86400,
 };
 
-// 2. Attach CORS Middleware First
+// Apply CORS & handle preflights before any other middleware
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
-// 3. Security Headers (Configured for Cross-Origin)
+// 2. Security Headers (Configured for cross-origin assets & APIs)
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -59,7 +66,7 @@ app.use(
   })
 );
 
-// 4. Rate Limiting (Skip preflight OPTIONS requests)
+// 3. Rate Limiting (Bypass preflight OPTIONS requests)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1000,
@@ -73,29 +80,31 @@ const limiter = rateLimit({
 });
 app.use("/api", limiter);
 
-// 5. Parsers & Static Assets
+// 4. Body Parsers, Static Assets & Cookies
 app.use(express.json({ limit: "50kb" }));
 app.use(express.urlencoded({ extended: true, limit: "50kb" }));
 app.use(express.static("public"));
 app.use(cookieParser());
 
-// 6. DB Connection (Skip on OPTIONS preflight)
+// 5. Database Connection Middleware (Bypass on preflights)
 app.use(async (req, res, next) => {
   if (req.method === "OPTIONS") return next();
+
   try {
     await connectDB();
     next();
   } catch (error) {
-    res.status(500).json({
+    console.error("Database connection middleware failure:", error.message);
+    return res.status(500).json({
       success: false,
       message: "Database connection failed",
     });
   }
 });
 
-// Health Check
+// Health Check & Wake Endpoint
 app.get("/api/v1/ping", (req, res) => {
-  res.status(200).json({
+  return res.status(200).json({
     success: true,
     message: "Nirvana Republic API is awake",
     timestamp: new Date().toISOString(),

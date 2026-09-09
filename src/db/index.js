@@ -1,35 +1,55 @@
 import mongoose from "mongoose";
 
-// Cache connection state across serverless/monolithic invocations
-let isConnected = false;
+/**
+ * Global cache across serverless warm-invocations.
+ * In Node.js / Vercel serverless runtime, `global` persists across warm invocations.
+ */
+let cached = global.mongoose;
+
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
 
 const connectDB = async () => {
-  // Use existing connection if already established
-  if (isConnected || mongoose.connection.readyState === 1) {
-    isConnected = true;
-    return;
+  // If already connected, reuse existing instance
+  if (cached.conn && mongoose.connection.readyState === 1) {
+    return cached.conn;
   }
 
   const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
 
   if (!mongoUri) {
-    throw new Error("MongoDB connection string (MONGODB_URI) is not defined in environment variables");
+    throw new Error(
+      "MongoDB connection string (MONGODB_URI) is not defined in environment variables"
+    );
+  }
+
+  // If a connection promise is already resolving, wait for it instead of starting a new one
+  if (!cached.promise) {
+    const opts = {
+      dbName: "nirvana_republic",
+      bufferCommands: false,
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 5000,
+    };
+
+    cached.promise = mongoose.connect(mongoUri, opts).then((mongooseInstance) => {
+      console.log(
+        `🍃 MongoDB connected: ${mongooseInstance.connection.host} | Database: ${mongooseInstance.connection.name}`
+      );
+      return mongooseInstance;
+    });
   }
 
   try {
-    const conn = await mongoose.connect(mongoUri, {
-      dbName: "nirvana_republic", // Isolates data in a dedicated 'nirvana_republic' database
-      bufferCommands: false,
-      serverSelectionTimeoutMS: 5000,
-    });
-
-    isConnected = true;
-    console.log(`🍃 MongoDB connected: ${conn.connection.host} | Database: ${conn.connection.name}`);
+    cached.conn = await cached.promise;
   } catch (error) {
-    isConnected = false;
+    cached.promise = null;
     console.error("❌ MongoDB connection error:", error.message);
     throw error;
   }
+
+  return cached.conn;
 };
 
 export default connectDB;
