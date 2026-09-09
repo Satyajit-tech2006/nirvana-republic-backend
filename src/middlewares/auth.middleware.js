@@ -1,40 +1,72 @@
 import jwt from "jsonwebtoken";
 import { User } from "../models/user.model.js";
+import { ApiError } from "../utils/ApiError.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
-export const protect = async (req, res, next) => {
-  let token;
-  if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
-    try {
-      token = req.headers.authorization.split(" ")[1];
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      
-      req.user = await User.findById(decoded.id).select("-password");
-      next();
-    } catch (error) {
-      res.status(401).json({ message: "Not authorized, token failed" });
-    }
-  } else {
-    res.status(401).json({ message: "Not authorized, no token" });
+// Verify JWT from Authorization header or HTTP-only cookies
+export const verifyJWT = asyncHandler(async (req, res, next) => {
+  const token =
+    req.cookies?.accessToken ||
+    req.header("Authorization")?.replace("Bearer ", "");
+
+  if (!token) {
+    throw new ApiError(401, "Unauthorized request: No access token provided");
   }
-};
 
-export const optionalAuth = async (req, res, next) => {
-  if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
-    try {
-      const token = req.headers.authorization.split(" ")[1];
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = await User.findById(decoded.id).select("-password");
-    } catch (error) {
-      // Ignore token errors for guest checkouts
+  try {
+    const decodedToken = jwt.verify(
+      token,
+      process.env.ACCESS_TOKEN_SECRET || process.env.JWT_SECRET
+    );
+
+    const user = await User.findById(decodedToken?._id || decodedToken?.id).select(
+      "-password -refreshToken"
+    );
+
+    if (!user) {
+      throw new ApiError(401, "Invalid access token: User not found");
     }
+
+    req.user = user;
+    next();
+  } catch (error) {
+    throw new ApiError(401, error?.message || "Invalid or expired access token");
+  }
+});
+
+// Optional authentication middleware for guest/logged-in checkouts
+export const optionalAuth = asyncHandler(async (req, res, next) => {
+  const token =
+    req.cookies?.accessToken ||
+    req.header("Authorization")?.replace("Bearer ", "");
+
+  if (token) {
+    try {
+      const decodedToken = jwt.verify(
+        token,
+        process.env.ACCESS_TOKEN_SECRET || process.env.JWT_SECRET
+      );
+
+      req.user = await User.findById(
+        decodedToken?._id || decodedToken?.id
+      ).select("-password -refreshToken");
+    } catch {
+      // Ignore invalid/expired tokens for optional guest access
+      req.user = null;
+    }
+  }
+
+  next();
+});
+
+// Admin authorization guard
+export const verifyAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== "admin") {
+    throw new ApiError(403, "Access forbidden: Admin privileges required");
   }
   next();
 };
 
-export const admin = (req, res, next) => {
-  if (req.user && req.user.role === "admin") {
-    next();
-  } else {
-    res.status(403).json({ message: "Not authorized as an admin" });
-  }
-};
+// Aliases for compatibility
+export const protect = verifyJWT;
+export const admin = verifyAdmin;

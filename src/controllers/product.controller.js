@@ -2,6 +2,18 @@ import { Product } from "../models/product.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { uploadBufferToCloudinary } from "../utils/cloudinary.js";
+
+// Helper: Safely parse JSON strings sent via multipart/form-data
+const safeJsonParse = (value, fallback) => {
+  if (!value) return fallback;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+};
 
 // @desc    Get all products with filtering, sorting & pagination
 // @route   GET /api/v1/products
@@ -103,7 +115,7 @@ export const getFeaturedProducts = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, products, "Featured products fetched successfully"));
 });
 
-// @desc    Create a new product
+// @desc    Create a new product with Cloudinary image/PDF uploads
 // @route   POST /api/v1/products
 // @access  Private/Admin
 export const createProduct = asyncHandler(async (req, res) => {
@@ -121,16 +133,19 @@ export const createProduct = asyncHandler(async (req, res) => {
     farmCluster,
     harvestPeriod,
     labReportRef,
-    labReportUrl,
     shelfLife,
     ritualTiming,
     ritualInstruction,
     benefits,
     nutritionalFacts,
-    images,
     isFeatured,
     isBestSeller,
   } = req.body;
+
+  // Parse structured objects passed via multipart/form-data
+  const parsedFarmCluster = safeJsonParse(farmCluster, farmCluster);
+  const parsedBenefits = safeJsonParse(benefits, []);
+  const parsedNutritionalFacts = safeJsonParse(nutritionalFacts, nutritionalFacts);
 
   if (
     !name ||
@@ -140,11 +155,10 @@ export const createProduct = asyncHandler(async (req, res) => {
     !category ||
     !price ||
     !weightGrams ||
-    !farmCluster ||
+    !parsedFarmCluster?.name ||
     !harvestPeriod ||
     !labReportRef ||
-    !ritualInstruction ||
-    !images?.length
+    !ritualInstruction
   ) {
     throw new ApiError(400, "All required product and origin fields must be provided");
   }
@@ -154,30 +168,66 @@ export const createProduct = asyncHandler(async (req, res) => {
     throw new ApiError(409, "A product with this slug already exists");
   }
 
+  // Upload product images to Cloudinary
+  const uploadedImageUrls = [];
+  if (req.files?.images && req.files.images.length > 0) {
+    for (const file of req.files.images) {
+      const uploadResult = await uploadBufferToCloudinary(
+        file.buffer,
+        "nirvana_republic/products"
+      );
+      if (uploadResult?.secure_url) {
+        uploadedImageUrls.push(uploadResult.secure_url);
+      }
+    }
+  } else if (req.body.images) {
+    // Support pre-uploaded array of URLs
+    const bodyImages = Array.isArray(req.body.images)
+      ? req.body.images
+      : [req.body.images];
+    uploadedImageUrls.push(...bodyImages);
+  }
+
+  if (uploadedImageUrls.length === 0) {
+    throw new ApiError(400, "At least one product image is required");
+  }
+
+  // Optional: Upload Lab Report Document (PDF/Image)
+  let labReportUrl = req.body.labReportUrl || "";
+  if (req.files?.labReport && req.files.labReport.length > 0) {
+    const labUploadResult = await uploadBufferToCloudinary(
+      req.files.labReport[0].buffer,
+      "nirvana_republic/lab_reports"
+    );
+    if (labUploadResult?.secure_url) {
+      labReportUrl = labUploadResult.secure_url;
+    }
+  }
+
   const product = await Product.create({
     name,
     slug: slug.toLowerCase(),
     tagline,
     description,
     category: category.toLowerCase(),
-    price,
-    compareAtPrice,
-    weightGrams,
-    stockQuantity: stockQuantity ?? 100,
+    price: Number(price),
+    compareAtPrice: compareAtPrice ? Number(compareAtPrice) : null,
+    weightGrams: Number(weightGrams),
+    stockQuantity: stockQuantity ? Number(stockQuantity) : 100,
     sku: sku || `NR-${slug.toUpperCase()}-${weightGrams}G`,
-    farmCluster,
+    farmCluster: parsedFarmCluster,
     harvestPeriod,
     labReportRef,
-    labReportUrl: labReportUrl || "",
-    shelfLife,
-    ritualTiming,
+    labReportUrl,
+    shelfLife: shelfLife || "12 months from packing",
+    ritualTiming: ritualTiming || "Morning",
     ritualInstruction,
-    benefits: benefits || [],
-    nutritionalFacts,
-    images,
-    thumbnail: images[0],
-    isFeatured: isFeatured ?? false,
-    isBestSeller: isBestSeller ?? false,
+    benefits: parsedBenefits,
+    nutritionalFacts: parsedNutritionalFacts,
+    images: uploadedImageUrls,
+    thumbnail: uploadedImageUrls[0],
+    isFeatured: isFeatured === "true" || isFeatured === true,
+    isBestSeller: isBestSeller === "true" || isBestSeller === true,
   });
 
   return res
@@ -185,25 +235,69 @@ export const createProduct = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, product, "Product created successfully"));
 });
 
-// @desc    Update product details
+// @desc    Update product details and upload extra images
 // @route   PATCH /api/v1/products/:id
 // @access  Private/Admin
 export const updateProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  const product = await Product.findByIdAndUpdate(
-    id,
-    { $set: req.body },
-    { new: true, runValidators: true }
-  );
-
+  const product = await Product.findById(id);
   if (!product) {
     throw new ApiError(404, "Product not found");
   }
 
+  const updateData = { ...req.body };
+
+  // Parse nested form fields if present
+  if (req.body.farmCluster) {
+    updateData.farmCluster = safeJsonParse(req.body.farmCluster, req.body.farmCluster);
+  }
+  if (req.body.benefits) {
+    updateData.benefits = safeJsonParse(req.body.benefits, req.body.benefits);
+  }
+  if (req.body.nutritionalFacts) {
+    updateData.nutritionalFacts = safeJsonParse(
+      req.body.nutritionalFacts,
+      req.body.nutritionalFacts
+    );
+  }
+
+  // Handle new image additions
+  if (req.files?.images && req.files.images.length > 0) {
+    const newImageUrls = [];
+    for (const file of req.files.images) {
+      const uploadResult = await uploadBufferToCloudinary(
+        file.buffer,
+        "nirvana_republic/products"
+      );
+      if (uploadResult?.secure_url) {
+        newImageUrls.push(uploadResult.secure_url);
+      }
+    }
+    updateData.images = [...(product.images || []), ...newImageUrls];
+    updateData.thumbnail = updateData.images[0];
+  }
+
+  // Handle updated lab report file
+  if (req.files?.labReport && req.files.labReport.length > 0) {
+    const labUploadResult = await uploadBufferToCloudinary(
+      req.files.labReport[0].buffer,
+      "nirvana_republic/lab_reports"
+    );
+    if (labUploadResult?.secure_url) {
+      updateData.labReportUrl = labUploadResult.secure_url;
+    }
+  }
+
+  const updatedProduct = await Product.findByIdAndUpdate(
+    id,
+    { $set: updateData },
+    { new: true, runValidators: true }
+  );
+
   return res
     .status(200)
-    .json(new ApiResponse(200, product, "Product updated successfully"));
+    .json(new ApiResponse(200, updatedProduct, "Product updated successfully"));
 });
 
 // @desc    Delete a product
