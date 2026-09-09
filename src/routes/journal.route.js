@@ -7,6 +7,7 @@ import {
   deleteArticle,
 } from "../controllers/journal.controller.js";
 import { verifyJWT, verifyAdmin } from "../middlewares/auth.middleware.js";
+import { upload } from "../middlewares/multer.middleware.js";
 
 const router = Router();
 
@@ -14,11 +15,14 @@ const router = Router();
 router.route("/").get(getArticles);
 router.route("/slug/:slug").get(getArticleBySlug);
 
-// Admin Content Management
-router.route("/").post(verifyJWT, verifyAdmin, createArticle);
+// Admin Content Management - Note: Added upload.single("coverImage")
+router
+  .route("/")
+  .post(verifyJWT, verifyAdmin, upload.single("coverImage"), createArticle);
+
 router
   .route("/:id")
-  .patch(verifyJWT, verifyAdmin, updateArticle)
+  .patch(verifyJWT, verifyAdmin, upload.single("coverImage"), updateArticle)
   .delete(verifyJWT, verifyAdmin, deleteArticle);
 
 export default router;

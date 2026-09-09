@@ -79,16 +79,12 @@ export const createArticle = asyncHandler(async (req, res) => {
     excerpt,
     content,
     category,
-    coverImage,
-    author,
     readTimeMinutes,
-    relatedProducts,
-    tags,
     isPublished,
   } = req.body;
 
-  if (!title || !slug || !excerpt || !content || !coverImage) {
-    throw new ApiError(400, "Title, slug, excerpt, content, and cover image are required");
+  if (!title || !slug || !excerpt || !content) {
+    throw new ApiError(400, "Title, slug, excerpt, and content body are required");
   }
 
   const existingArticle = await Journal.findOne({ slug: slug.toLowerCase() });
@@ -96,19 +92,60 @@ export const createArticle = asyncHandler(async (req, res) => {
     throw new ApiError(409, "An article with this slug already exists");
   }
 
+  // Handle Cover Image Upload
+  let coverImageUrl = req.body.coverImage;
+  if (req.file?.path) {
+    const uploaded = await uploadOnCloudinary(req.file.path);
+    coverImageUrl = uploaded?.secure_url || uploaded?.url;
+  }
+
+  if (!coverImageUrl) {
+    throw new ApiError(400, "Cover image is required");
+  }
+
+  // Parse complex JSON/string fields safely
+  let author = { name: "Nirvana Editorial", role: "Botanical Research Lead" };
+  if (req.body.author) {
+    try {
+      author = typeof req.body.author === "string" ? JSON.parse(req.body.author) : req.body.author;
+    } catch {
+      author = { name: req.body.author, role: "Botanical Research Lead" };
+    }
+  }
+
+  let tags = [];
+  if (req.body.tags) {
+    try {
+      tags = typeof req.body.tags === "string" ? JSON.parse(req.body.tags) : req.body.tags;
+    } catch {
+      tags = req.body.tags.split(",").map((t) => t.trim());
+    }
+  }
+
+  let relatedProducts = [];
+  if (req.body.relatedProducts) {
+    try {
+      relatedProducts = typeof req.body.relatedProducts === "string" ? JSON.parse(req.body.relatedProducts) : req.body.relatedProducts;
+    } catch {
+      relatedProducts = [];
+    }
+  }
+
+  const shouldPublish = isPublished === "true" || isPublished === true;
+
   const article = await Journal.create({
-    title,
-    slug: slug.toLowerCase(),
-    excerpt,
+    title: title.trim(),
+    slug: slug.toLowerCase().trim(),
+    excerpt: excerpt.trim(),
     content,
     category: category || "Rituals",
-    coverImage,
-    author: author || { name: "Nirvana Editorial" },
-    readTimeMinutes: readTimeMinutes || 4,
-    relatedProducts: relatedProducts || [],
-    tags: tags || [],
-    isPublished: isPublished ?? false,
-    publishedAt: isPublished ? new Date() : null,
+    coverImage: coverImageUrl,
+    author,
+    readTimeMinutes: Number(readTimeMinutes) || 4,
+    relatedProducts,
+    tags,
+    isPublished: shouldPublish,
+    publishedAt: shouldPublish ? new Date() : null,
   });
 
   return res
