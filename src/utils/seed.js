@@ -5,7 +5,6 @@ import { Product } from "../models/product.model.js";
 
 dotenv.config();
 
-const MONGO_URI = process.env.MONGODB_URI || "mongodb+srv://satyajitswain2006_db_user:PQC4J3KsTpOczhiH@cluster0.fdyhenl.mongodb.net/nirvana_republic?retryWrites=true&w=majority";
 
 const seedJournals = [
   {
