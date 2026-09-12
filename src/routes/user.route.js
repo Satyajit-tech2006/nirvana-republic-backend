@@ -8,6 +8,8 @@ import {
   updateAccountDetails,
   addAddress,
   deleteAddress,
+  updateAddress,
+  setDefaultAddress,
 } from "../controllers/user.controller.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 
@@ -26,5 +28,7 @@ router.route("/update-profile").patch(verifyJWT, updateAccountDetails);
 // Address Management Routes
 router.route("/addresses").post(verifyJWT, addAddress);
 router.route("/addresses/:addressId").delete(verifyJWT, deleteAddress);
+router.route("/addresses/:addressId").delete(verifyJWT, deleteAddress).put(verifyJWT, updateAddress);
+router.route("/addresses/:addressId/default").patch(verifyJWT, setDefaultAddress);
 
 export default router;

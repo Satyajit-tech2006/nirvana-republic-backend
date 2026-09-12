@@ -267,3 +267,69 @@ export const deleteAddress = asyncHandler(async (req, res) => {
     .status(200)
     .json(new ApiResponse(200, user.addresses, "Address deleted successfully"));
 });
+
+// @desc    Update delivery address
+// @route   PUT /api/v1/users/addresses/:addressId
+// @access  Private
+export const updateAddress = asyncHandler(async (req, res) => {
+  const { addressId } = req.params;
+  const { street, locality, city, state, postalCode, country, phone, isDefault } = req.body;
+
+  const user = await User.findById(req.user._id);
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
+
+  const address = user.addresses.id(addressId);
+  if (!address) {
+    throw new ApiError(404, "Address not found");
+  }
+
+  if (isDefault) {
+    user.addresses.forEach((addr) => {
+      addr.isDefault = false;
+    });
+  }
+
+  if (street !== undefined) address.street = street;
+  if (locality !== undefined) address.locality = locality;
+  if (city !== undefined) address.city = city;
+  if (state !== undefined) address.state = state;
+  if (postalCode !== undefined) address.postalCode = postalCode;
+  if (country !== undefined) address.country = country;
+  if (phone !== undefined) address.phone = phone;
+  if (isDefault !== undefined) address.isDefault = isDefault;
+
+  await user.save();
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, user.addresses, "Address updated successfully"));
+});
+
+// @desc    Set address as default
+// @route   PATCH /api/v1/users/addresses/:addressId/default
+// @access  Private
+export const setDefaultAddress = asyncHandler(async (req, res) => {
+  const { addressId } = req.params;
+
+  const user = await User.findById(req.user._id);
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
+
+  const targetAddress = user.addresses.id(addressId);
+  if (!targetAddress) {
+    throw new ApiError(404, "Address not found");
+  }
+
+  user.addresses.forEach((addr) => {
+    addr.isDefault = addr._id.toString() === addressId;
+  });
+
+  await user.save();
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, user.addresses, "Default address set successfully"));
+});
