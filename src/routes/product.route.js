@@ -7,7 +7,7 @@ import {
   updateProduct,
   deleteProduct,
 } from "../controllers/product.controller.js";
-import { verifyJWT, verifyAdmin } from "../middlewares/auth.middleware.js";
+import { verifyJWT, requirePermission } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
 
 const router = Router();
@@ -23,11 +23,28 @@ router.route("/").get(getAllProducts);
 router.route("/featured").get(getFeaturedProducts);
 router.route("/slug/:slug").get(getProductBySlug);
 
-// Admin Management Routes with Multi-File Uploads
-router.route("/").post(verifyJWT, verifyAdmin, productUploads, createProduct);
+// Admin Management Routes Protected by MANAGE_PRODUCTS Capability
+router
+  .route("/")
+  .post(
+    verifyJWT,
+    requirePermission("MANAGE_PRODUCTS"),
+    productUploads,
+    createProduct
+  );
+
 router
   .route("/:id")
-  .patch(verifyJWT, verifyAdmin, productUploads, updateProduct)
-  .delete(verifyJWT, verifyAdmin, deleteProduct);
+  .patch(
+    verifyJWT,
+    requirePermission("MANAGE_PRODUCTS"),
+    productUploads,
+    updateProduct
+  )
+  .delete(
+    verifyJWT,
+    requirePermission("MANAGE_PRODUCTS"),
+    deleteProduct
+  );
 
 export default router;

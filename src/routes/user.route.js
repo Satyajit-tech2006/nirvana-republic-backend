@@ -10,8 +10,11 @@ import {
   deleteAddress,
   updateAddress,
   setDefaultAddress,
+  searchUsers,
+  getAllAdmins,
+  updateUserPermissions,
 } from "../controllers/user.controller.js";
-import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { verifyJWT, requirePermission } from "../middlewares/auth.middleware.js";
 
 const router = Router();
 
@@ -27,8 +30,25 @@ router.route("/update-profile").patch(verifyJWT, updateAccountDetails);
 
 // Address Management Routes
 router.route("/addresses").post(verifyJWT, addAddress);
-router.route("/addresses/:addressId").delete(verifyJWT, deleteAddress);
-router.route("/addresses/:addressId").delete(verifyJWT, deleteAddress).put(verifyJWT, updateAddress);
+router
+  .route("/addresses/:addressId")
+  .put(verifyJWT, updateAddress)
+  .delete(verifyJWT, deleteAddress);
 router.route("/addresses/:addressId/default").patch(verifyJWT, setDefaultAddress);
+
+// =========================================================================
+// ADMIN USER MANAGEMENT ROUTES (Protected by MANAGE_USERS capability)
+// =========================================================================
+router
+  .route("/admin/search")
+  .get(verifyJWT, requirePermission("MANAGE_USERS"), searchUsers);
+
+router
+  .route("/admin/admins")
+  .get(verifyJWT, requirePermission("MANAGE_USERS"), getAllAdmins);
+
+router
+  .route("/admin/:userId/permissions")
+  .patch(verifyJWT, requirePermission("MANAGE_USERS"), updateUserPermissions);
 
 export default router;

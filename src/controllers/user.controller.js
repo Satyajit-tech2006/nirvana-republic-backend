@@ -1,4 +1,4 @@
-import { User } from "../models/user.model.js";
+import { User, ADMIN_PERMISSIONS } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -332,4 +332,132 @@ export const setDefaultAddress = asyncHandler(async (req, res) => {
   return res
     .status(200)
     .json(new ApiResponse(200, user.addresses, "Default address set successfully"));
+});
+
+// =========================================================================
+// ADMIN USER MANAGEMENT CONTROLLERS (CAPABILITIES & RBAC)
+// =========================================================================
+
+// @desc    Search any user by email or name
+// @route   GET /api/v1/users/admin/search
+// @access  Private (Admin + MANAGE_USERS)
+export const searchUsers = asyncHandler(async (req, res) => {
+  const { query, limit = 10, page = 1 } = req.query;
+
+  const filter = {};
+  if (query && query.trim()) {
+    const searchRegex = new RegExp(query.trim(), "i");
+    filter.$or = [{ email: searchRegex }, { name: searchRegex }];
+  }
+
+  const skip = (Number(page) - 1) * Number(limit);
+
+  const [users, total] = await Promise.all([
+    User.find(filter)
+      .select("-password -refreshToken")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit)),
+    User.countDocuments(filter),
+  ]);
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        users,
+        total,
+        page: Number(page),
+        pages: Math.ceil(total / Number(limit)),
+      },
+      "Users fetched successfully"
+    )
+  );
+});
+
+// @desc    Get list of all admin staff members
+// @route   GET /api/v1/users/admin/admins
+// @access  Private (Admin + MANAGE_USERS)
+export const getAllAdmins = asyncHandler(async (req, res) => {
+  const admins = await User.find({ role: "admin" })
+    .select("-password -refreshToken")
+    .sort({ createdAt: -1 });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, admins, "Admin members fetched successfully"));
+});
+
+// @desc    Update a user's role and capability permissions
+// @route   PATCH /api/v1/users/admin/:userId/permissions
+// @access  Private (Admin + MANAGE_USERS)
+export const updateUserPermissions = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const { role, permissions } = req.body;
+
+  const targetUser = await User.findById(userId);
+  if (!targetUser) {
+    throw new ApiError(404, "User not found");
+  }
+
+  // Prevent self-lockout: Admin cannot remove their own MANAGE_USERS permission or demote themselves
+  if (
+    req.user._id.toString() === targetUser._id.toString() &&
+    (role === "customer" || (Array.isArray(permissions) && !permissions.includes("MANAGE_USERS")))
+  ) {
+    throw new ApiError(
+      400,
+      "Self-demotion prevention: You cannot remove your own MANAGE_USERS permission or change your role to customer"
+    );
+  }
+
+  // Validate permissions against defined ADMIN_PERMISSIONS enum
+  if (permissions !== undefined) {
+    if (!Array.isArray(permissions)) {
+      throw new ApiError(400, "Permissions must be an array of strings");
+    }
+
+    const invalidPermissions = permissions.filter(
+      (perm) => !ADMIN_PERMISSIONS.includes(perm)
+    );
+
+    if (invalidPermissions.length > 0) {
+      throw new ApiError(
+        400,
+        `Invalid permissions provided: ${invalidPermissions.join(", ")}`
+      );
+    }
+
+    targetUser.permissions = permissions;
+  }
+
+  // Role handling: If role is explicitly provided, apply it.
+  // If not provided but permissions array has items, automatically ensure role is 'admin'.
+  if (role) {
+    if (!["customer", "admin"].includes(role)) {
+      throw new ApiError(400, "Invalid role. Must be 'customer' or 'admin'");
+    }
+    targetUser.role = role;
+    if (role === "customer") {
+      targetUser.permissions = [];
+    }
+  } else if (targetUser.permissions.length > 0) {
+    targetUser.role = "admin";
+  }
+
+  await targetUser.save({ validateBeforeSave: false });
+
+  const updatedUser = await User.findById(targetUser._id).select(
+    "-password -refreshToken"
+  );
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        updatedUser,
+        "User role and permissions updated successfully"
+      )
+    );
 });

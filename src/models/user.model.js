@@ -2,6 +2,15 @@ import mongoose, { Schema } from "mongoose";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
+// Export available admin permissions for use across controllers/middlewares
+export const ADMIN_PERMISSIONS = [
+  "MANAGE_PRODUCTS",
+  "MANAGE_INVENTORY",
+  "MANAGE_JOURNALS",
+  "MANAGE_ORDERS",
+  "MANAGE_USERS",
+];
+
 const addressSchema = new Schema(
   {
     street: {
@@ -77,6 +86,12 @@ const userSchema = new Schema(
       enum: ["customer", "admin"],
       default: "customer",
     },
+    // Granular capabilities for admins
+    permissions: {
+      type: [String],
+      enum: ADMIN_PERMISSIONS,
+      default: [],
+    },
     avatar: {
       type: String, // Cloudinary URL
       default: "",
@@ -115,6 +130,7 @@ userSchema.methods.generateAccessToken = function () {
       email: this.email,
       role: this.role,
       name: this.name,
+      permissions: this.permissions || [],
     },
     process.env.ACCESS_TOKEN_SECRET,
     {

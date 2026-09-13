@@ -59,12 +59,41 @@ export const optionalAuth = asyncHandler(async (req, res, next) => {
   next();
 });
 
-// Admin authorization guard
+// General Admin authorization guard (verifies base admin role)
 export const verifyAdmin = (req, res, next) => {
   if (!req.user || req.user.role !== "admin") {
     throw new ApiError(403, "Access forbidden: Admin privileges required");
   }
   next();
+};
+
+// Granular capability guard: verifies if admin holds the specific permission(s)
+export const requirePermission = (...requiredPermissions) => {
+  return (req, res, next) => {
+    if (!req.user || req.user.role !== "admin") {
+      throw new ApiError(403, "Access forbidden: Admin privileges required");
+    }
+
+    const userPermissions = Array.isArray(req.user.permissions)
+      ? req.user.permissions
+      : [];
+
+    // Check if the user has at least one of the required permissions passed to the guard
+    const hasAccess = requiredPermissions.some((perm) =>
+      userPermissions.includes(perm)
+    );
+
+    if (!hasAccess) {
+      throw new ApiError(
+        403,
+        `Access forbidden: You lack the required permission (${requiredPermissions.join(
+          " or "
+        )}) to perform this action.`
+      );
+    }
+
+    next();
+  };
 };
 
 // Aliases for compatibility
