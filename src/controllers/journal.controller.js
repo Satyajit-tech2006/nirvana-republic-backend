@@ -1,9 +1,8 @@
-import fs from "fs";
 import { Journal } from "../models/journal.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { uploadOnCloudinary } from "../utils/cloudinary.js";
+import { uploadBufferToCloudinary } from "../utils/cloudinary.js";
 
 // @desc    Get published articles with category filtering & pagination
 // @route   GET /api/v1/journal
@@ -85,29 +84,23 @@ export const createArticle = asyncHandler(async (req, res) => {
     isPublished,
   } = req.body;
 
-  // Cleanup helper in case of validation error
-  const localFilePath = req.file?.path;
-
   if (!title || !slug || !excerpt || !content) {
-    if (localFilePath && fs.existsSync(localFilePath)) {
-      fs.unlinkSync(localFilePath);
-    }
     throw new ApiError(400, "Title, slug, excerpt, and content body are required");
   }
 
   const existingArticle = await Journal.findOne({ slug: slug.toLowerCase() });
   if (existingArticle) {
-    if (localFilePath && fs.existsSync(localFilePath)) {
-      fs.unlinkSync(localFilePath);
-    }
     throw new ApiError(409, "An article with this slug already exists");
   }
 
-  // Handle Cover Image Upload to Cloudinary
-  let coverImageUrl = req.body.coverImage;
-  if (localFilePath) {
-    const uploaded = await uploadOnCloudinary(localFilePath);
-    coverImageUrl = uploaded?.secure_url || uploaded?.url;
+  // Handle Cover Image Upload to Cloudinary via memory buffer
+  let coverImageUrl = req.body.coverImage || "";
+  if (req.file?.buffer) {
+    const uploaded = await uploadBufferToCloudinary(
+      req.file.buffer,
+      "nirvana_republic/journal"
+    );
+    coverImageUrl = uploaded?.secure_url || uploaded?.url || "";
   }
 
   if (!coverImageUrl) {
@@ -136,7 +129,10 @@ export const createArticle = asyncHandler(async (req, res) => {
   let relatedProducts = [];
   if (req.body.relatedProducts) {
     try {
-      relatedProducts = typeof req.body.relatedProducts === "string" ? JSON.parse(req.body.relatedProducts) : req.body.relatedProducts;
+      relatedProducts =
+        typeof req.body.relatedProducts === "string"
+          ? JSON.parse(req.body.relatedProducts)
+          : req.body.relatedProducts;
     } catch {
       relatedProducts = [];
     }
@@ -172,9 +168,12 @@ export const updateArticle = asyncHandler(async (req, res) => {
 
   let updateData = { ...req.body };
 
-  // Handle updated image if uploaded
-  if (req.file?.path) {
-    const uploaded = await uploadOnCloudinary(req.file.path);
+  // Handle updated image buffer if a new file was uploaded
+  if (req.file?.buffer) {
+    const uploaded = await uploadBufferToCloudinary(
+      req.file.buffer,
+      "nirvana_republic/journal"
+    );
     if (uploaded?.secure_url || uploaded?.url) {
       updateData.coverImage = uploaded.secure_url || uploaded.url;
     }
