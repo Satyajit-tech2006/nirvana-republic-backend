@@ -1,29 +1,8 @@
 import multer from "multer";
-import path from "path";
-import fs from "fs";
-import os from "os";
 import { ApiError } from "../utils/ApiError.js";
 
-// Use /tmp on Vercel; use ./public/temp when developing locally
-const tempDir = process.env.VERCEL ? os.tmpdir() : "./public/temp";
-
-if (!fs.existsSync(tempDir)) {
-  try {
-    fs.mkdirSync(tempDir, { recursive: true });
-  } catch (err) {
-    console.warn("Could not create temp directory:", err.message);
-  }
-}
-
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, tempDir);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, `${file.fieldname}-${uniqueSuffix}${path.extname(file.originalname)}`);
-  },
-});
+// Buffer file in memory so file.buffer is accessible by uploadBufferToCloudinary
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   const allowedMimeTypes = [
